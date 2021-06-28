@@ -27,7 +27,12 @@ int cantSanos = 0;
 int cantVacunados = 0;
 
 // ===================== CODE-VID =====================
-// variables o funciones globales...
+
+// Del archivo de config
+float probMuerte = 0; // Probabilidad que muera.
+int tiempoMuerte = 0; // Tiempo que tarda en morir
+int tiempoCurar = 0; // Tiempo que se tarda en sanar
+int reinfeccion = 0; // 0 = No hay reinfeccion | 1 = Si hay reinfeccion.
 
 
 // ===================== AGENTES =====================
@@ -41,45 +46,211 @@ void configuracionAgente();
 // variables o funciones globales...
 
 
-// ============ TIPO DE AGENTE: CICLICO (Adrian) ==============
+// ============ TIPO DE AGENTE: CICLICO ==============
 
 // 
 pthread_mutex_t mensaje;
-
+pthread_mutex_t modificar;
+void calcForward(int* direccion, int* x, int* y);
+int calcBackward(int direccion);
 void* ciclico(void* arg){
 	int tipo = 1; // Ciclico
 	int miGrupo = *(int*) arg;
-
-	// pthread_mutex_lock(&mensaje);
-	// printf("Soy un hilo del grupo %i y mis datos son los siguientes: \n", miGrupo);
-	// printf("Velocidad maxima: %i\n", velocMax[miGrupo]);
-	// printf("Velocidad minima: %i\n", velocMin[miGrupo]);
-	// printf("Estado: %c\n", estado[miGrupo]);
-	// pthread_mutex_unlock(&mensaje);
-
+	char miEstado = estado[miGrupo];
 	//Generar una posicion aleatoria
 	int x = 0;
 	int y = 0;
+	int antX = 0;
+	int antY = 0;
 	int bandera = 0;
 	while(!bandera){
 		x = (rand() % ((filas - 1) - 0 + 1));
 		y = (rand() % ((columnas - 1) - 0 + 1));
 		if(mat[x][y][0] != -1){ // SI no es una pared...
 			bandera = 1;
-			if(estado[miGrupo] == 'e'){
+			if(miEstado == 'e'){
+				antX = x;
+				antY = y;
+				pthread_mutex_lock(&modificar);
 				mat[x][y][tipo]++;
+				pthread_mutex_unlock(&modificar);
 			}
 		}
 	}
 
-	// //Definiendo ruta...
-	// int pasos = 0;
-	// while(pasos <= 7){
+	//Definiendo ruta...
+	int pasos = 0;
+	int forward[7];
+	int backwards[7];
+	int direccion;
+	bandera = 0;
+	while(pasos < 7){
+		antX = x;
+		antY = y;
+		pthread_mutex_lock(&mensaje); // BORRAR MUTEX !!!
+		direccion = (rand() % ((8 - 1) - 1 + 1)) + 1;
+		calcForward(&direccion, &x, &y);
+		if(x<0 || y<0 || x>=filas || y>=columnas){
+			printf("hay una pared (%i,%i)\n", x, y);
+			x = antX;
+			y = antY;
+			bandera = 1; // Hay una pared en medio de su camino.
+			break;
+		}
+		printf("x: %i, y: %i\n",x, y); // BORRAR MUTEX !!!
+		pthread_mutex_unlock(&mensaje);
+		if(mat[x][y][0] == -1){
+			x = antX;
+			y = antY;
+			bandera = 1; // Hay una pared en medio de su camino.
+			break;
+		}
+		if(miEstado == 'e'){
+			pthread_mutex_lock(&modificar);
+			mat[antX][antY][tipo]--;
+			mat[x][y][tipo]++;
+			pthread_mutex_unlock(&modificar);
+			forward[pasos] = direccion;
+		}
+		if(miEstado == 's'){
+		}
 
-	// 	pasos++;
+		pasos++;
+	}
+	if(bandera != 1){ pasos--; }
+
+	int pasosFinal = pasos;
+
+	// Determinando la ruta hacia atras... 
+	int backwardCount = 0;
+	while(pasos >= 0){
+		antX = x;
+		antY = y;
+		direccion = calcBackward(forward[pasos]);
+		calcForward(&direccion, &x, &y);
+		//printf("x: %i, y: %i\n",x, y); 
+		if(miEstado == 'e'){
+			pthread_mutex_lock(&modificar);
+			mat[antX][antY][tipo]--;
+			mat[x][y][tipo]++;
+			pthread_mutex_unlock(&modificar);
+			backwards[backwardCount] = direccion;
+		}
+		if(miEstado == 's'){
+		}
+		backwardCount++;
+		pasos--;
+	}
+	backwardCount--;
+	int backwardFinal = backwardCount;
+
+	int steps = 0;
+	int secondCount = 0;
+	int morire = 0; // :(
+	pasos = 0;
+	backwardCount = 0;
+	// while(!finEjecucion){
+	// 	// REVISAR CENTRO DE VACUNACION
+
+	// 	if(morire == 1){
+
+	// 	}
+	// 	// Si se sale de este ciclo, significa que ya ha pasado un segundo.
+	// 	while(steps<=velocMax[miGrupo] || steps>=velocMin[miGrupo]){
+	// 		pasos = 0;
+	// 		backwardCount = 0;
+	// 		// Walk forward
+	// 		while(pasos<=pasosFinal){
+	// 			antX = x;
+	// 			antY = y;
+	// 			direccion = forward[pasos];
+	// 			calcForward(&direccion, &x, &y);
+	// 			if(miEstado == 'e'){
+	// 				pthread_mutex_lock(&modificar);
+	// 				mat[antX][antY][tipo]--;
+	// 				mat[x][y][tipo]++;
+	// 				pthread_mutex_unlock(&modificar);
+	// 				backwards[backwardCount] = direccion;
+	// 			}
+	// 			if(miEstado == 's'){
+	// 				for(int i = 0; i<tamArray; i++){
+	// 					if(mat[x][y][i] > 0){ // hay personas enfermas...
+	// 						// calculando si me contagio con este tipo de agente de acuerdo al archivo de config...
+	// 						// if(si me enfermo, detengo este loop porque es solamente para validar si me enfermo o no) {
+	// 						// 	miEstado = 'e';
+	// 						// 	morire = 1; // :(
+	// 						// 	break;
+	// 						// }
+	// 						// si no, sigo buscando en las demas casillas...
+	// 					}
+	// 				}
+	// 			}
+	// 			pasos++;
+	// 			steps++;
+	// 		}
+	// 	}
+	// 	steps = 0;
 	// }
 }
 
+void calcForward(int* direccion, int* x, int* y){
+	switch(*direccion){
+		case 1: *x = *x - 1;
+		break;
+		case 2: *x = *x - 1; *y = *y + 1;
+		break;
+		case 3: *y = *y + 1;
+		break;
+		case 4: *x = *x + 1; *y = *y + 1;
+		break;
+		case 5: *x = *x + 1;
+		break;
+		case 6: *x = *x + 1; *y = *y - 1;
+		break;
+		case 7: *y = *y - 1;
+		break;
+		case 8: *x = *x - 1; *y = *y - 1;
+		break;
+	}
+}
+
+int calcBackward(int direccion){
+	switch(direccion){
+		case 1: return 5;
+		case 2: return 6;
+		case 3: return 7;
+		case 4: return 8;
+		case 5: return 1;
+		case 6: return 2;
+		case 7: return 3;
+		case 8: return 4;
+	}
+}
+
+// ============ TIPO DE AGENTE: ALEATORIO ==============
+void* aleatorio(void* arg){
+    int tipo = 2; // aleatorio
+    int miGrupo = *(int*) arg;
+
+    //Generar una posicion aleatoria
+    int x = 0;
+    int y = 0;
+    char miEstado = estado[miGrupo];
+    int bandera = 0;
+    while(!bandera){ 
+        x = (rand() % ((filas - 1) - 0 + 1));
+        y = (rand() % ((columnas - 1) - 0 + 1));
+        if(mat[x][y][0] != -1){ // SI no es una pared...
+            bandera = 1;
+            if(miEstado == 'e'){
+                mat[x][y][tipo]++;
+            }
+            else{
+                mat[x][y][4]++;
+            }
+        }
+    }
+}
 
 void * cambioSegundo(void* arg){
 	
@@ -104,12 +275,12 @@ int main (int argc, char **argv)
 	*tiempo = atoi(argv[1]);
 
 	pthread_mutex_init(&mensaje, NULL);
-	
-	configuracionMapa();
-	configuracionAgente();
+	pthread_mutex_init(&modificar, NULL);
 
 	srand(time(0));
 
+	configuracionMapa();
+	configuracionAgente();
 
 	// Se crea un hilo que vaya tomando el tiempo de ejecucion.
 	pthread_t timeID;
@@ -122,7 +293,14 @@ int main (int argc, char **argv)
 	pthread_join(timeID, NULL);
 	pthread_join(segundosID, NULL);
 
+	// for(int i = 0; i<filas; i++){
+	// 	for(int j = 0; j<columnas; j++)
+	// 		printf("%i ",mat[i][j][1]);
+	// 	printf("\n");
+	// }
+
 	pthread_mutex_destroy(&mensaje);
+	pthread_mutex_destroy(&modificar);
 
 	// Importante mantener esto al final del main porque
 	// borra la memoria de la matriz dinamica.
@@ -265,3 +443,12 @@ void configuracionAgente(){
 	// 		}
 	// 	}
 	// }
+
+
+	
+	// pthread_mutex_lock(&mensaje);
+	// printf("Soy un hilo del grupo %i y mis datos son los siguientes: \n", miGrupo);
+	// printf("Velocidad maxima: %i\n", velocMax[miGrupo]);
+	// printf("Velocidad minima: %i\n", velocMin[miGrupo]);
+	// printf("Estado: %c\n", estado[miGrupo]);
+	// pthread_mutex_unlock(&mensaje);
